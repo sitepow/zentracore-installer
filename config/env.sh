@@ -8,3 +8,8 @@ NODE_VERSION="20"
 
 GIT_REPO="git@github.com:sitepow/zentracore.git"
 SWAP_SIZE="2G"
+
+DB_NAME="zentracore"
+DB_USER="zentracore"
+DB_PASSWORD="zentracore_password"
+DB_PORT=5432

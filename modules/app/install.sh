@@ -4,31 +4,37 @@ set -e
 BASE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$BASE_DIR/config/env.sh"
 
+GIT_BRANCH="${1:-$DEFAULT_BRANCH}"
 SSH_DIR="$HOME/.ssh"
 SSH_KEY="$SSH_DIR/id_ed25519"
-GIT_BRANCH="${1:-$DEFAULT_BRANCH}"
 
 IS_WSL=false
 if grep -qi microsoft /proc/version; then
   IS_WSL=true
 fi
 
+SERVER_IP=$(hostname -I | awk '{print $1}')
+APP_URL="http://$SERVER_IP:$APP_PORT"
+
 echo "--------------------------------------"
 echo "ZentraCore Install"
 echo "Branch: $GIT_BRANCH"
 echo "WSL: $IS_WSL"
+echo "APP URL: $APP_URL"
 echo "--------------------------------------"
 
 sudo apt update
-sudo apt install -y curl git nginx ca-certificates gnupg htop unzip
+sudo apt install -y \
+  curl git nginx ca-certificates gnupg htop unzip \
+  postgresql postgresql-contrib
 
 if [ "$IS_WSL" = false ]; then
   sudo apt install -y ufw fail2ban
-fi
-
-if [ "$IS_WSL" = false ]; then
   sudo timedatectl set-timezone "$TIMEZONE"
 fi
+
+sudo systemctl enable postgresql
+sudo systemctl start postgresql
 
 if [ "$IS_WSL" = false ] && ! swapon --show | grep -q swapfile; then
   sudo fallocate -l "$SWAP_SIZE" /swapfile
@@ -39,11 +45,7 @@ if [ "$IS_WSL" = false ] && ! swapon --show | grep -q swapfile; then
 fi
 
 if command -v ufw >/dev/null 2>&1 && [ "$IS_WSL" = false ]; then
-  if ufw app list | grep -q OpenSSH; then
-    sudo ufw allow OpenSSH
-  else
-    sudo ufw allow 22
-  fi
+  sudo ufw allow OpenSSH || sudo ufw allow 22
   sudo ufw allow 80
   sudo ufw allow 443
   sudo ufw --force enable
@@ -66,17 +68,62 @@ fi
 
 ssh-keyscan github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
 
+echo "Setting up PostgreSQL..."
+
+sudo -u postgres psql <<EOF
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
+    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
+  END IF;
+END
+\$\$;
+
+CREATE DATABASE $DB_NAME OWNER $DB_USER;
+EOF || true
+
+sudo rm -rf "$APP_DIR"
 sudo mkdir -p "$APP_DIR"
 sudo chown -R "$USER:$USER" "$APP_DIR"
 
-if [ ! -d "$APP_DIR/.git" ]; then
-  git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
-else
-  echo "Repo already exists, skipping clone"
+git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
+
+ENV_FILE="$APP_DIR/.env"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Creating .env file..."
+  cat > "$ENV_FILE" <<EOF
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@localhost:$DB_PORT/$DB_NAME"
+
+APP_URL="$APP_URL"
+NEXT_PUBLIC_APP_URL="$APP_URL"
+
+AUTH_SECRET="$(openssl rand -base64 32)"
+NEXTAUTH_URL="$APP_URL"
+
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+FACEBOOK_CLIENT_ID=""
+FACEBOOK_CLIENT_SECRET=""
+
+STRIPE_SECRET_KEY=""
+STRIPE_WEBHOOK_SECRET=""
+
+OMISE_SECRET_KEY=""
+NEXT_PUBLIC_OMISE_PUBLIC_KEY=""
+
+SUPABASE_URL=""
+SUPABASE_SERVICE_ROLE_KEY=""
+NEXT_PUBLIC_SUPABASE_URL=""
+NEXT_PUBLIC_SUPABASE_ANON_KEY=""
+EOF
 fi
 
 cd "$APP_DIR"
+
 pnpm install
+pnpm prisma generate
+pnpm prisma migrate deploy || pnpm prisma db push
 pnpm build
 
 pm2 start pnpm --name "$APP_NAME" -- start
@@ -103,6 +150,9 @@ EOF
 
 sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
 sudo nginx -t
-sudo systemctl reload nginx || true
+sudo systemctl reload nginx
 
-echo "Installed successfully"
+echo "--------------------------------------"
+echo "ZentraCore installed successfully"
+echo "App URL: $APP_URL"
+echo "--------------------------------------"
