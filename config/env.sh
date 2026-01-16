@@ -2,7 +2,7 @@ APP_NAME="zentracore"
 APP_DIR="/var/www/zentracore"
 APP_PORT="3000"
 
-DEFAULT_BRANCH="faos"
+DEFAULT_BRANCH="main"
 TIMEZONE="Asia/Bangkok"
 NODE_VERSION="20"
 
