@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-APP_PORT="3000"
+BASE_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+source "$BASE_DIR/config/env.sh"
 
 DOMAIN=$1
 EMAIL="admin@$DOMAIN"
@@ -91,6 +92,4 @@ sudo certbot --nginx \
 echo "[6/6] Verify auto renew"
 sudo certbot renew --dry-run
 
-echo "--------------------------------------"
 echo "SSL setup completed"
-echo "--------------------------------------"

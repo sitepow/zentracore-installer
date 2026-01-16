@@ -1,49 +1,29 @@
 #!/bin/bash
 set -e
 
-BASE_URL="https://raw.githubusercontent.com/you/zentracore-installer/main"
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-download() {
-  curl -fsSL "$BASE_URL/$1" -o "/tmp/$1"
-  chmod +x "/tmp/$1"
+APP_INSTALL="$BASE_DIR/modules/app/install.sh"
+APP_UPDATE="$BASE_DIR/modules/app/update.sh"
+APP_UNINSTALL="$BASE_DIR/modules/app/uninstall.sh"
+
+SSL_INSTALL="$BASE_DIR/modules/ssl/install.sh"
+SSL_REMOVE="$BASE_DIR/modules/ssl/remove.sh"
+
+usage() {
+  echo "Usage:"
+  echo "  ./cli.sh install [branch]"
+  echo "  ./cli.sh update [branch]"
+  echo "  ./cli.sh ssl domain.com"
+  echo "  ./cli.sh remove-ssl domain.com"
+  echo "  ./cli.sh uninstall"
 }
 
-echo "--------------------------------------"
-echo "ZentraCore CLI"
-echo "--------------------------------------"
-echo "1) Install application"
-echo "2) Update application"
-echo "3) Install SSL"
-echo "4) Remove SSL"
-echo "5) Uninstall everything"
-echo "--------------------------------------"
-
-read -p "Select option: " CHOICE
-
-case "$CHOICE" in
-  1)
-    download install.sh
-    /tmp/install.sh
-    ;;
-  2)
-    download update.sh
-    /tmp/update.sh
-    ;;
-  3)
-    read -p "Domain: " DOMAIN
-    download install-ssl.sh
-    /tmp/install-ssl.sh "$DOMAIN"
-    ;;
-  4)
-    read -p "Domain: " DOMAIN
-    download remove-ssl.sh
-    /tmp/remove-ssl.sh "$DOMAIN"
-    ;;
-  5)
-    download uninstall.sh
-    /tmp/uninstall.sh
-    ;;
-  *)
-    echo "Invalid option"
-    exit 1
+case "$1" in
+  install)    bash "$APP_INSTALL" "$2" ;;
+  update)     bash "$APP_UPDATE" "$2" ;;
+  uninstall)  bash "$APP_UNINSTALL" ;;
+  ssl)        bash "$SSL_INSTALL" "$2" ;;
+  remove-ssl) bash "$SSL_REMOVE" "$2" ;;
+  *) usage ;;
 esac

@@ -2,7 +2,7 @@
 set -e
 
 echo "--------------------------------------"
-echo "REMOVE APP & RESET SERVER STATE"
+echo "ZentraCore Uninstall"
 echo "--------------------------------------"
 
 read -p "Type YES to continue (THIS WILL DELETE DATA): " CONFIRM
@@ -56,7 +56,4 @@ echo "Autoremove unused packages..."
 apt autoremove -y
 apt autoclean -y
 
-echo "--------------------------------------"
-echo "REMOVE COMPLETED"
-echo "Server is now clean (Ubuntu base only)"
-echo "--------------------------------------"
+echo "Uninstall completed"

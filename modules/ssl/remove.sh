@@ -37,6 +37,4 @@ sudo nginx -t
 echo "[4/4] Reload nginx"
 sudo systemctl reload nginx
 
-echo "--------------------------------------"
 echo "SSL remove completed"
-echo "--------------------------------------"
