@@ -76,11 +76,15 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
     CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
   END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM pg_database WHERE datname = '$DB_NAME'
+  ) THEN
+    CREATE DATABASE $DB_NAME OWNER $DB_USER;
+  END IF;
 END
 \$\$;
-
-CREATE DATABASE $DB_NAME OWNER $DB_USER;
-EOF || true
+EOF
 
 sudo rm -rf "$APP_DIR"
 sudo mkdir -p "$APP_DIR"
