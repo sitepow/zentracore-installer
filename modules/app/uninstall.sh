@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+if [ "$EUID" -ne 0 ]; then
+  echo "❌ Please run as root"
+  echo "👉 Trying again with sudo..."
+  exec sudo bash "$0" "$@"
+fi
+
 echo "--------------------------------------"
 echo "ZentraCore Uninstall"
 echo "--------------------------------------"
