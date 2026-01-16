@@ -6,15 +6,9 @@ REPO="https://github.com/sitepow/zentracore-installer.git"
 
 echo "------- ZentraCore CLI Force Update -------"
 
-if [ -d "$INSTALL_DIR" ]; then
-  echo "Removing old installer..."
-  sudo rm -rf "$INSTALL_DIR"
-fi
-
-if [ -e "/usr/local/bin/zentracore" ]; then
-  echo "Removing old CLI link..."
-  sudo rm -f /usr/local/bin/zentracore
-fi
+echo "Cleaning old installation..."
+sudo rm -rf "$INSTALL_DIR"
+sudo rm -f /usr/local/bin/zentracore
 
 sudo apt update
 sudo apt install -y git curl
@@ -22,9 +16,11 @@ sudo apt install -y git curl
 echo "Cloning repository..."
 sudo git clone "$REPO" "$INSTALL_DIR"
 
-sudo ln -s "$INSTALL_DIR/cli.sh" /usr/local/bin/zentracore
 sudo chmod +x "$INSTALL_DIR/cli.sh"
 
-echo "--------------------------------"
-echo "ZentraCore CLI updated successfully"
+sudo ln -sf "$INSTALL_DIR/cli.sh" /usr/local/bin/zentracore
+
+echo "------------------------------------------"
+echo "ZentraCore CLI installed successfully"
+echo "Path: /usr/local/bin/zentracore"
 echo "Run: zentracore"

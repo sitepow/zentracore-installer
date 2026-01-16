@@ -12,7 +12,6 @@ SSL_REMOVE="$BASE_DIR/modules/ssl/remove.sh"
 
 usage() {
   echo "ZentraCore CLI"
-  echo ""
   echo "Usage:"
   echo "  zentracore install [branch]"
   echo "  zentracore update [branch]"
