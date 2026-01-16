@@ -96,30 +96,51 @@ ENV_FILE="$APP_DIR/.env"
 
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating .env file..."
-  cat > "$ENV_FILE" <<EOF
+ cat > "$ENV_FILE" <<EOF
+# =====================
+# Database
+# =====================
 DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@localhost:$DB_PORT/$DB_NAME"
 
+# =====================
+# App URL (temporary)
+# =====================
 APP_URL="$APP_URL"
 NEXT_PUBLIC_APP_URL="$APP_URL"
-
-AUTH_SECRET="$(openssl rand -base64 32)"
 NEXTAUTH_URL="$APP_URL"
 
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
-FACEBOOK_CLIENT_ID=""
-FACEBOOK_CLIENT_SECRET=""
+# =====================
+# Auth
+# =====================
+AUTH_SECRET="$(openssl rand -base64 32)"
 
-STRIPE_SECRET_KEY=""
-STRIPE_WEBHOOK_SECRET=""
+# =====================
+# OAuth (dummy)
+# =====================
+GOOGLE_CLIENT_ID="dummy-google-client-id"
+GOOGLE_CLIENT_SECRET="dummy-google-client-secret"
+FACEBOOK_CLIENT_ID="dummy-facebook-client-id"
+FACEBOOK_CLIENT_SECRET="dummy-facebook-client-secret"
 
-OMISE_SECRET_KEY=""
-NEXT_PUBLIC_OMISE_PUBLIC_KEY=""
+# =====================
+# Stripe (dummy but valid)
+# =====================
+STRIPE_SECRET_KEY="sk_test_dummykey1234567890"
+STRIPE_WEBHOOK_SECRET="whsec_dummywebhooksecret"
 
-SUPABASE_URL=""
-SUPABASE_SERVICE_ROLE_KEY=""
-NEXT_PUBLIC_SUPABASE_URL=""
-NEXT_PUBLIC_SUPABASE_ANON_KEY=""
+# =====================
+# Omise (dummy)
+# =====================
+OMISE_SECRET_KEY="pkey_test_dummy"
+NEXT_PUBLIC_OMISE_PUBLIC_KEY="pkey_test_dummy_public"
+
+# =====================
+# Supabase (dummy but valid URL format)
+# =====================
+SUPABASE_URL="https://dummy.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY="dummy-service-role-key"
+NEXT_PUBLIC_SUPABASE_URL="https://dummy.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="dummy-anon-key"
 EOF
 fi
 
