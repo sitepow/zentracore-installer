@@ -8,18 +8,29 @@ SSH_DIR="$HOME/.ssh"
 SSH_KEY="$SSH_DIR/id_ed25519"
 GIT_BRANCH="${1:-$DEFAULT_BRANCH}"
 
+IS_WSL=false
+if grep -qi microsoft /proc/version; then
+  IS_WSL=true
+fi
+
 echo "--------------------------------------"
 echo "ZentraCore Install"
 echo "Branch: $GIT_BRANCH"
+echo "WSL: $IS_WSL"
 echo "--------------------------------------"
 
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl git ufw fail2ban nginx \
-  ca-certificates gnupg htop unzip
+sudo apt update
+sudo apt install -y curl git nginx ca-certificates gnupg htop unzip
 
-sudo timedatectl set-timezone "$TIMEZONE"
+if [ "$IS_WSL" = false ]; then
+  sudo apt install -y ufw fail2ban
+fi
 
-if ! swapon --show | grep -q swapfile; then
+if [ "$IS_WSL" = false ]; then
+  sudo timedatectl set-timezone "$TIMEZONE"
+fi
+
+if [ "$IS_WSL" = false ] && ! swapon --show | grep -q swapfile; then
   sudo fallocate -l "$SWAP_SIZE" /swapfile
   sudo chmod 600 /swapfile
   sudo mkswap /swapfile
@@ -27,10 +38,16 @@ if ! swapon --show | grep -q swapfile; then
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
 fi
 
-sudo ufw allow OpenSSH
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw --force enable
+if command -v ufw >/dev/null 2>&1 && [ "$IS_WSL" = false ]; then
+  if ufw app list | grep -q OpenSSH; then
+    sudo ufw allow OpenSSH
+  else
+    sudo ufw allow 22
+  fi
+  sudo ufw allow 80
+  sudo ufw allow 443
+  sudo ufw --force enable
+fi
 
 curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
 sudo apt install -y nodejs
@@ -41,17 +58,21 @@ chmod 700 "$SSH_DIR"
 
 if [ ! -f "$SSH_KEY" ]; then
   ssh-keygen -t ed25519 -C "zentracore@$(hostname)" -f "$SSH_KEY" -N ""
+  echo ""
+  echo "👉 Add this SSH key to GitHub:"
   cat "$SSH_KEY.pub"
-  read -p "Add key to GitHub then press ENTER..."
+  read -p "Press ENTER after adding the key..."
 fi
 
-ssh-keyscan github.com >> "$SSH_DIR/known_hosts"
+ssh-keyscan github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
 
 sudo mkdir -p "$APP_DIR"
 sudo chown -R "$USER:$USER" "$APP_DIR"
 
 if [ ! -d "$APP_DIR/.git" ]; then
   git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
+else
+  echo "Repo already exists, skipping clone"
 fi
 
 cd "$APP_DIR"
@@ -60,7 +81,10 @@ pnpm build
 
 pm2 start pnpm --name "$APP_NAME" -- start
 pm2 save
-pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
+
+if [ "$IS_WSL" = false ]; then
+  pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
+fi
 
 NGINX_CONF="/etc/nginx/sites-available/$APP_NAME"
 
@@ -79,6 +103,6 @@ EOF
 
 sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
 sudo nginx -t
-sudo systemctl reload nginx
+sudo systemctl reload nginx || true
 
-echo "Install completed"
+echo "Installed successfully"
