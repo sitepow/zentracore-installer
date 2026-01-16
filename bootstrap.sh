@@ -1,14 +1,17 @@
 #!/bin/bash
 set -e
 
-BIN_PATH="/usr/local/bin/zentracore"
-CLI_URL="https://raw.githubusercontent.com/sitepow/zentracore-installer/main/cli.sh"
+BASE_DIR="/opt/zentracore-installer"
+REPO="https://github.com/sitepow/zentracore-installer.git"
 
 echo "Installing ZentraCore CLI..."
 
-sudo curl -fsSL "$CLI_URL" -o "$BIN_PATH"
-sudo chmod +x "$BIN_PATH"
+sudo mkdir -p /opt
+sudo rm -rf "$BASE_DIR"
+sudo git clone "$REPO" "$BASE_DIR"
+
+sudo ln -sf "$BASE_DIR/cli.sh" /usr/local/bin/zentracore
+sudo chmod +x "$BASE_DIR/cli.sh"
 
 echo "Done."
-echo ""
 echo "Run: zentracore"
