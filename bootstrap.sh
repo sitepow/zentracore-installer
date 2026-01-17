@@ -14,5 +14,6 @@ sudo chmod +x "$INSTALL_DIR/cli.sh"
 sudo ln -sf "$INSTALL_DIR/cli.sh" /usr/local/bin/zentracore
 
 echo "--------------------------------------"
-echo "[DONE]: ZentraCore CLI updated. Run 'zentracore' to start."
+echo "[DONE]: ZentraCore CLI updated!"
+echo "Run command 'zentracore' to start."
 echo "--------------------------------------"
