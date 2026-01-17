@@ -7,7 +7,6 @@ usage() {
 cat <<EOF
 
 ZentraCore CLI
-________________________________________________________
 Usage:
   zentracore <command> [options]
 
