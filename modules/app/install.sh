@@ -62,6 +62,13 @@ PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
 PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
 PG_HBA="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
 
+grep -q "ZENTRACORE_REMOTE_ACCESS" "$PG_HBA" || sudo tee -a "$PG_HBA" >/dev/null <<EOF
+
+# ZENTRACORE_REMOTE_ACCESS
+host    all             all             0.0.0.0/0               md5
+host    all             all             ::/0                    md5
+EOF
+
 PG_SHARED_BUFFERS=$((PG_BUDGET * 25 / 100))
 PG_CACHE_SIZE=$((PG_BUDGET * 75 / 100))
 PG_MAINT_MEM=$((PG_BUDGET * 10 / 100))
@@ -73,7 +80,7 @@ PG_WORK_MEM=$((PG_BUDGET / CPU_CORES / 8))
 PG_MAX_CONN=$((CPU_CORES * 20))
 [ "$PG_MAX_CONN" -gt 200 ] && PG_MAX_CONN=200
 
-sudo sed -i "s/^#listen_addresses.*/listen_addresses = '127.0.0.1'/" "$PG_CONF"
+sudo sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
 
 grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
 shared_buffers = ${PG_SHARED_BUFFERS}MB
@@ -197,6 +204,7 @@ if [ "$IS_WSL" = false ]; then
   sudo ufw allow OpenSSH
   sudo ufw allow 80
   sudo ufw allow 443
+  sudo ufw allow 5432
   sudo ufw --force enable
 fi
 
