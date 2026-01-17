@@ -96,7 +96,9 @@ sudo npm install -g pnpm pm2
 sudo -u postgres psql -c "CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';" || true
 sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;" || true
 
-sudo rm -rf "$APP_DIR" && mkdir -p "$APP_DIR" && sudo chown -R "$USER:$USER" "$APP_DIR"
+sudo rm -rf "$APP_DIR"
+sudo mkdir -p "$APP_DIR"
+sudo chown -R "$USER:$USER" "$APP_DIR"
 git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
