@@ -71,7 +71,7 @@ ssh-keyscan github.com >> "$SSH_DIR/known_hosts" 2>/dev/null
 echo "Setting up PostgreSQL..."
 
 sudo -u postgres psql <<EOF
-DO \$\$
+DO \$\$ 
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
     CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
@@ -97,46 +97,19 @@ ENV_FILE="$APP_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating .env file..."
  cat > "$ENV_FILE" <<EOF
-# =====================
-# Database
-# =====================
 DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@localhost:$DB_PORT/$DB_NAME"
-
-# =====================
-# App URL (temporary)
-# =====================
 APP_URL="$APP_URL"
 NEXT_PUBLIC_APP_URL="$APP_URL"
 NEXTAUTH_URL="$APP_URL"
-
-# =====================
-# Auth
-# =====================
 AUTH_SECRET="$(openssl rand -base64 32)"
-
-# =====================
-# OAuth (dummy)
-# =====================
 GOOGLE_CLIENT_ID="dummy-google-client-id"
 GOOGLE_CLIENT_SECRET="dummy-google-client-secret"
 FACEBOOK_CLIENT_ID="dummy-facebook-client-id"
 FACEBOOK_CLIENT_SECRET="dummy-facebook-client-secret"
-
-# =====================
-# Stripe (dummy but valid)
-# =====================
 STRIPE_SECRET_KEY="sk_test_dummykey1234567890"
 STRIPE_WEBHOOK_SECRET="whsec_dummywebhooksecret"
-
-# =====================
-# Omise (dummy)
-# =====================
 OMISE_SECRET_KEY="pkey_test_dummy"
 NEXT_PUBLIC_OMISE_PUBLIC_KEY="pkey_test_dummy_public"
-
-# =====================
-# Supabase (dummy but valid URL format)
-# =====================
 SUPABASE_URL="https://dummy.supabase.co"
 SUPABASE_SERVICE_ROLE_KEY="dummy-service-role-key"
 NEXT_PUBLIC_SUPABASE_URL="https://dummy.supabase.co"
