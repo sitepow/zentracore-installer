@@ -26,7 +26,7 @@ echo "--------------------------------------"
 sudo apt update
 sudo apt install -y \
   curl git nginx ca-certificates gnupg htop unzip \
-  postgresql postgresql-contrib
+  postgresql postgresql-contrib pgbouncer
 
 if [ "$IS_WSL" = false ]; then
   sudo apt install -y ufw fail2ban
@@ -36,12 +36,43 @@ fi
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
 
-if [ "$IS_WSL" = false ] && ! swapon --show | grep -q swapfile; then
-  sudo fallocate -l "$SWAP_SIZE" /swapfile
-  sudo chmod 600 /swapfile
-  sudo mkswap /swapfile
-  sudo swapon /swapfile
-  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+echo "Tuning PostgreSQL for Web App..."
+
+PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
+PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
+PG_HBA="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
+
+if [ "$IS_WSL" = false ]; then
+sudo sed -i "s/^#listen_addresses.*/listen_addresses = 'localhost'/" "$PG_CONF"
+sudo tee -a "$PG_CONF" >/dev/null <<'EOF'
+
+shared_buffers = 2GB
+effective_cache_size = 6GB
+work_mem = 16MB
+maintenance_work_mem = 512MB
+max_connections = 30
+wal_buffers = 16MB
+min_wal_size = 1GB
+max_wal_size = 4GB
+checkpoint_completion_target = 0.9
+synchronous_commit = off
+random_page_cost = 1.1
+effective_io_concurrency = 200
+log_min_duration_statement = 500ms
+EOF
+
+  if [ "$DB_REMOTE_ACCESS" = "true" ]; then
+    echo "Config pg_hba.conf"
+    sudo tee -a "$PG_HBA" >/dev/null <<EOF
+
+# ZentraCore Remote DB Access
+host    $DB_NAME    $DB_USER    $DB_ALLOWED_CIDR    md5
+EOF
+  fi
+
+  sudo systemctl restart postgresql
+else
+  echo "⚠️ Skip PostgreSQL tuning on WSL"
 fi
 
 if command -v ufw >/dev/null 2>&1 && [ "$IS_WSL" = false ]; then
@@ -86,6 +117,42 @@ END
 \$\$;
 EOF
 
+echo "Configuring PgBouncer..."
+
+PGBOUNCER_INI="/etc/pgbouncer/pgbouncer.ini"
+PGBOUNCER_USERLIST="/etc/pgbouncer/userlist.txt"
+
+sudo tee "$PGBOUNCER_INI" >/dev/null <<EOF
+[databases]
+$DB_NAME = host=127.0.0.1 port=5432 dbname=$DB_NAME user=$DB_USER password=$DB_PASSWORD
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = 6432
+auth_type = md5
+auth_file = $PGBOUNCER_USERLIST
+pool_mode = transaction
+
+max_client_conn = 1000
+default_pool_size = 20
+reserve_pool_size = 5
+ignore_startup_parameters = extra_float_digits
+EOF
+
+echo "Setting PgBouncer auth..."
+
+PG_MD5=$(echo -n "$DB_PASSWORD$DB_USER" | md5sum | awk '{print $1}')
+
+sudo tee "$PGBOUNCER_USERLIST" >/dev/null <<EOF
+"$DB_USER" "md5$PG_MD5"
+EOF
+
+sudo chown postgres:postgres "$PGBOUNCER_USERLIST"
+sudo chmod 600 "$PGBOUNCER_USERLIST"
+
+sudo systemctl enable pgbouncer
+sudo systemctl restart pgbouncer
+
 sudo rm -rf "$APP_DIR"
 sudo mkdir -p "$APP_DIR"
 sudo chown -R "$USER:$USER" "$APP_DIR"
@@ -97,7 +164,7 @@ ENV_FILE="$APP_DIR/.env"
 if [ ! -f "$ENV_FILE" ]; then
   echo "Creating .env file..."
  cat > "$ENV_FILE" <<EOF
-DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@localhost:$DB_PORT/$DB_NAME"
+DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:6432/$DB_NAME"
 APP_URL="$APP_URL"
 NEXT_PUBLIC_APP_URL="$APP_URL"
 NEXTAUTH_URL="$APP_URL"
@@ -124,7 +191,12 @@ pnpm prisma generate
 pnpm prisma migrate deploy || pnpm prisma db push
 pnpm build
 
-pm2 start pnpm --name "$APP_NAME" -- start
+pm2 start pnpm \
+  --name "$APP_NAME" \
+  -- start \
+  -i max \
+  --max-memory-restart 512M
+
 pm2 save
 
 if [ "$IS_WSL" = false ]; then
@@ -142,6 +214,9 @@ server {
     proxy_set_header Host \$host;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection 'upgrade';
+    proxy_http_version 1.1;
+    proxy_set_header X-Forwarded-For \$remote_addr;
+    proxy_set_header X-Forwarded-Proto \$scheme;
   }
 }
 EOF

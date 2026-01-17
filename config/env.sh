@@ -12,4 +12,6 @@ SWAP_SIZE="2G"
 DB_NAME="zentracore"
 DB_USER="zentracore"
 DB_PASSWORD="zentracore_password"
-DB_PORT=5432
+
+DB_REMOTE_ACCESS=true
+DB_ALLOWED_CIDR="172.23.0.0/16"
