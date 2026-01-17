@@ -16,10 +16,16 @@ MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
 
 echo "--------------------------------------"
 echo " ZentraCore Production Install"
-echo " CPU: $CPU_CORES cores | RAM: ${MEM_TOTAL}MB"
+echo " CPU: $CPU_CORES cores"
+echo " RAM: ${MEM_TOTAL}MB"
 echo " WSL: $IS_WSL"
 echo " APP: $APP_URL"
 echo "--------------------------------------"
+
+OS_RESERVE=$((MEM_TOTAL * 15 / 100))
+PG_BUDGET=$((MEM_TOTAL * 40 / 100))
+NODE_BUDGET=$((MEM_TOTAL * 25 / 100))
+REDIS_BUDGET=$((MEM_TOTAL * 10 / 100))
 
 if [ "$IS_WSL" = false ]; then
 sudo tee /etc/sysctl.d/99-zentracore.conf >/dev/null <<EOF
@@ -35,7 +41,7 @@ fi
 
 sudo apt update
 sudo apt install -y \
-  curl git nginx ca-certificates gnupg htop unzip \
+  curl git nginx ca-certificates gnupg unzip htop \
   postgresql postgresql-contrib \
   redis-server
 
@@ -44,7 +50,10 @@ if [ "$IS_WSL" = false ]; then
   sudo timedatectl set-timezone "$TIMEZONE"
 fi
 
-REDIS_MAX_MEM=$((MEM_TOTAL / 8))
+REDIS_MAX_MEM=$REDIS_BUDGET
+[ "$REDIS_MAX_MEM" -lt 64 ] && REDIS_MAX_MEM=64
+[ "$REDIS_MAX_MEM" -gt 1024 ] && REDIS_MAX_MEM=1024
+
 sudo sed -i "s/^# maxmemory .*/maxmemory ${REDIS_MAX_MEM}mb/" /etc/redis/redis.conf
 sudo sed -i "s/^# maxmemory-policy .*/maxmemory-policy allkeys-lru/" /etc/redis/redis.conf
 sudo systemctl restart redis-server
@@ -52,20 +61,26 @@ sudo systemctl restart redis-server
 PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
 PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
 
-SB=$((MEM_TOTAL / 4))
-ECS=$((MEM_TOTAL * 3 / 4))
-WM=$((MEM_TOTAL / CPU_CORES / 16))
-[ "$WM" -lt 4 ] && WM=4
+PG_SHARED_BUFFERS=$((PG_BUDGET * 25 / 100))
+PG_CACHE_SIZE=$((PG_BUDGET * 75 / 100))
+PG_MAINT_MEM=$((PG_BUDGET * 10 / 100))
 
-sudo sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
+PG_WORK_MEM=$((PG_BUDGET / CPU_CORES / 8))
+[ "$PG_WORK_MEM" -lt 4 ] && PG_WORK_MEM=4
+[ "$PG_WORK_MEM" -gt 64 ] && PG_WORK_MEM=64
+
+PG_MAX_CONN=$((CPU_CORES * 20))
+[ "$PG_MAX_CONN" -gt 200 ] && PG_MAX_CONN=200
+
+sudo sed -i "s/^#listen_addresses.*/listen_addresses = '127.0.0.1'/" "$PG_CONF"
 
 grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
 # ZENTRACORE_TUNING
-shared_buffers = ${SB}MB
-effective_cache_size = ${ECS}MB
-work_mem = ${WM}MB
-maintenance_work_mem = $((MEM_TOTAL / 16))MB
-max_connections = $((CPU_CORES * 100))
+shared_buffers = ${PG_SHARED_BUFFERS}MB
+effective_cache_size = ${PG_CACHE_SIZE}MB
+work_mem = ${PG_WORK_MEM}MB
+maintenance_work_mem = ${PG_MAINT_MEM}MB
+max_connections = ${PG_MAX_CONN}
 checkpoint_completion_target = 0.9
 synchronous_commit = off
 random_page_cost = 1.1
@@ -74,8 +89,16 @@ EOF
 sudo systemctl restart postgresql
 
 sudo -u postgres psql <<EOF
-CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
-CREATE DATABASE $DB_NAME OWNER $DB_USER;
+DO \$\$
+BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
+    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
+  END IF;
+  IF NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME') THEN
+    CREATE DATABASE $DB_NAME OWNER $DB_USER;
+  END IF;
+END
+\$\$;
 EOF
 
 curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
@@ -124,6 +147,7 @@ module.exports = {
     args: "start -p $APP_PORT -H 0.0.0.0",
     exec_mode: "cluster",
     instances: "max",
+    max_memory_restart: "${NODE_BUDGET}M",
     env: { NODE_ENV: "production" }
   }]
 }
