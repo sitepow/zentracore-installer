@@ -132,6 +132,36 @@ sudo rm -rf "$APP_DIR"
 sudo mkdir -p "$APP_DIR"
 sudo chown -R "$USER:$USER" "$APP_DIR"
 
+echo "--------------------------------------"
+echo " Checking SSH key for GitHub"
+echo "--------------------------------------"
+
+SSH_KEY="$HOME/.ssh/id_ed25519"
+
+mkdir -p "$HOME/.ssh"
+chmod 700 "$HOME/.ssh"
+
+if [ ! -f "$SSH_KEY" ]; then
+  echo "No SSH key found, generating new one..."
+  ssh-keygen -t ed25519 -C "zentracore@$(hostname)" -f "$SSH_KEY" -N ""
+else
+  echo "SSH key already exists"
+fi
+
+chmod 600 "$SSH_KEY"
+chmod 644 "$SSH_KEY.pub"
+
+echo ""
+echo "--------------------------------------"
+echo "COPY THIS SSH PUBLIC KEY TO GITHUB"
+echo "--------------------------------------"
+cat "$SSH_KEY.pub"
+echo "--------------------------------------"
+echo ""
+echo "👉 GitHub → Settings → SSH and GPG keys → New SSH key"
+echo "👉 Paste the key above, then press ENTER to continue"
+read -r
+
 git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
