@@ -128,7 +128,7 @@ pnpm prisma migrate deploy || pnpm prisma db push
 pnpm build
 
 pm2 delete "$APP_NAME" || true
-pm2 start pnpm --name "$APP_NAME" --interpreter none -- start -- -i max --max-memory-restart $((MEM_TOTAL / CPU_CORES / 2))M
+pm2 start pnpm --name "$APP_NAME" -i max --max-memory-restart $((MEM_TOTAL / CPU_CORES / 2))M -- start -- -p $APP_PORT
 pm2 save
 [[ "$IS_WSL" = false ]] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
 
