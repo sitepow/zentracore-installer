@@ -60,6 +60,7 @@ sudo systemctl restart redis-server
 
 PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
 PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
+PG_HBA="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
 
 PG_SHARED_BUFFERS=$((PG_BUDGET * 25 / 100))
 PG_CACHE_SIZE=$((PG_BUDGET * 75 / 100))
@@ -75,7 +76,6 @@ PG_MAX_CONN=$((CPU_CORES * 20))
 sudo sed -i "s/^#listen_addresses.*/listen_addresses = '127.0.0.1'/" "$PG_CONF"
 
 grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
-# ZENTRACORE_TUNING
 shared_buffers = ${PG_SHARED_BUFFERS}MB
 effective_cache_size = ${PG_CACHE_SIZE}MB
 work_mem = ${PG_WORK_MEM}MB
@@ -86,28 +86,26 @@ synchronous_commit = off
 random_page_cost = 1.1
 EOF
 
+sudo sed -i "s/^local\s\+all\s\+all\s\+.*/local all all md5/" "$PG_HBA"
+sudo sed -i "s/^host\s\+all\s\+all\s\+127.0.0.1\/32\s\+.*/host all all 127.0.0.1\/32 md5/" "$PG_HBA"
+sudo sed -i "s/^host\s\+all\s\+all\s\+::1\/128\s\+.*/host all all ::1\/128 md5/" "$PG_HBA"
+
 sudo systemctl restart postgresql
 
 sudo -u postgres psql <<EOF
-DO \$\$
-BEGIN
-  IF EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
-    ALTER ROLE $DB_USER WITH PASSWORD '$DB_PASSWORD';
-  ELSE
-    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
-  END IF;
-END
-\$\$;
+REVOKE CONNECT ON DATABASE $DB_NAME FROM public;
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB_NAME';
 
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME') THEN
-    CREATE DATABASE $DB_NAME OWNER $DB_USER;
-  END IF;
-END
-\$\$;
+DROP DATABASE IF EXISTS ${DB_NAME};
+DROP DATABASE IF EXISTS ${DB_NAME}_shadow;
+DROP ROLE IF EXISTS $DB_USER;
+
+CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD' CREATEDB;
+CREATE DATABASE $DB_NAME OWNER $DB_USER;
+CREATE DATABASE ${DB_NAME}_shadow OWNER $DB_USER;
 
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
+GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME}_shadow TO $DB_USER;
 EOF
 
 curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
@@ -123,6 +121,7 @@ cd "$APP_DIR"
 
 cat > .env <<EOF
 DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME
+SHADOW_DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/${DB_NAME}_shadow
 REDIS_URL=redis://127.0.0.1:6379
 APP_URL=$APP_URL
 NEXT_PUBLIC_APP_URL=$APP_URL
@@ -145,7 +144,7 @@ EOF
 
 pnpm install
 pnpm prisma generate
-pnpm prisma migrate deploy || pnpm prisma db push
+pnpm prisma migrate deploy
 pnpm build
 
 cat > ecosystem.config.js <<EOF
@@ -174,13 +173,11 @@ server {
   listen 80;
   server_name _;
   gzip on;
-
   location /_next/static/ {
     alias $APP_DIR/.next/static/;
     expires 365d;
     access_log off;
   }
-
   location / {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
@@ -204,6 +201,6 @@ if [ "$IS_WSL" = false ]; then
 fi
 
 echo "--------------------------------------"
-echo " INSTALL DONE"
+echo " [DONE]: Install completed!"
 echo " $APP_URL"
 echo "--------------------------------------"
