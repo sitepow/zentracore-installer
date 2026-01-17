@@ -80,9 +80,18 @@ PG_WORK_MEM=$((PG_BUDGET / CPU_CORES / 8))
 PG_MAX_CONN=$((CPU_CORES * 20))
 [ "$PG_MAX_CONN" -gt 200 ] && PG_MAX_CONN=200
 
-sudo sed -i "s/^#listen_addresses.*/listen_addresses = '*'/" "$PG_CONF"
+sudo sed -i "/^listen_addresses\s*=.*/d" "$PG_CONF"
+sudo sed -i "/^#listen_addresses\s*=.*/d" "$PG_CONF"
+
+grep -q "ZENTRACORE_NETWORK" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
+
+# ZENTRACORE_NETWORK
+listen_addresses = '*'
+EOF
 
 grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
+
+# ZENTRACORE_TUNING
 shared_buffers = ${PG_SHARED_BUFFERS}MB
 effective_cache_size = ${PG_CACHE_SIZE}MB
 work_mem = ${PG_WORK_MEM}MB
