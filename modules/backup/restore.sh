@@ -53,7 +53,14 @@ PGPASSWORD="$DB_PASSWORD" psql \
   -p "$DB_PORT" \
   -U "$DB_USER" \
   -d postgres \
-  -c "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME OWNER $DB_USER;"
+  -c "DROP DATABASE IF EXISTS $DB_NAME;"
+
+PGPASSWORD="$DB_PASSWORD" psql \
+  -h 127.0.0.1 \
+  -p "$DB_PORT" \
+  -U "$DB_USER" \
+  -d postgres \
+  -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
 
 PGPASSWORD="$DB_PASSWORD" pg_restore \
   -h 127.0.0.1 \
