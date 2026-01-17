@@ -39,11 +39,6 @@ sudo apt install -y \
   postgresql postgresql-contrib \
   pgbouncer redis-server
 
-if [ "$IS_WSL" = false ]; then
-  sudo apt install -y ufw fail2ban
-  sudo timedatectl set-timezone "$TIMEZONE"
-fi
-
 REDIS_MAX_MEM=$((MEM_TOTAL / 8))
 sudo sed -i "s/^# maxmemory .*/maxmemory ${REDIS_MAX_MEM}mb/" /etc/redis/redis.conf
 sudo sed -i "s/^# maxmemory-policy .*/maxmemory-policy allkeys-lru/" /etc/redis/redis.conf
@@ -57,61 +52,47 @@ ECS=$((MEM_TOTAL * 3 / 4))
 WM=$((MEM_TOTAL / CPU_CORES / 16))
 [ "$WM" -lt 4 ] && WM=4
 
-if [ "$IS_WSL" = false ]; then
-  sudo sed -i "s/^#listen_addresses.*/listen_addresses = 'localhost'/" "$PG_CONF"
+sudo sed -i "s/^#listen_addresses.*/listen_addresses = 'localhost'/" "$PG_CONF"
 
-  grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
+grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
 # ZENTRACORE_TUNING
 shared_buffers = ${SB}MB
 effective_cache_size = ${ECS}MB
 work_mem = ${WM}MB
 maintenance_work_mem = $((MEM_TOTAL / 16))MB
-max_connections = 100
+max_connections = 200
 checkpoint_completion_target = 0.9
-synchronous_commit = off
 random_page_cost = 1.1
 EOF
 
-  sudo systemctl restart postgresql
-fi
+sudo systemctl restart postgresql
 
 sudo -u postgres psql <<EOF
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '$DB_USER') THEN
-    CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
-  END IF;
-  IF NOT EXISTS (SELECT FROM pg_database WHERE datname = '$DB_NAME') THEN
-    CREATE DATABASE $DB_NAME OWNER $DB_USER;
-  END IF;
-END
-\$\$;
+CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT;
 EOF
 
-PG_MD5=$(printf "%s%s" "$DB_PASSWORD" "$DB_USER" | md5sum | awk '{print $1}')
+sudo -u postgres psql <<EOF
+CREATE DATABASE $DB_NAME OWNER $DB_USER;
+EOF
 
 sudo tee /etc/pgbouncer/pgbouncer.ini >/dev/null <<EOF
 [databases]
-$DB_NAME = host=127.0.0.1 port=5432 dbname=$DB_NAME user=$DB_USER password=$DB_PASSWORD
+$DB_NAME = host=127.0.0.1 port=5432 dbname=$DB_NAME
 
 [pgbouncer]
 listen_addr = 127.0.0.1
 listen_port = 6432
-auth_type = md5
-auth_file = /etc/pgbouncer/userlist.txt
+auth_type = scram-sha-256
+auth_query = SELECT usename, passwd FROM pg_shadow WHERE usename=\$1
 pool_mode = transaction
 max_client_conn = 5000
 default_pool_size = $((CPU_CORES * 20))
 ignore_startup_parameters = extra_float_digits
 EOF
 
-sudo tee /etc/pgbouncer/userlist.txt >/dev/null <<EOF
-"$DB_USER" "md5$PG_MD5"
-EOF
-
-sudo chmod 600 /etc/pgbouncer/userlist.txt
-sudo systemctl enable pgbouncer
 sudo systemctl restart pgbouncer
+sudo systemctl enable pgbouncer
 
 curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
 sudo apt install -y nodejs
@@ -159,9 +140,6 @@ module.exports = {
     args: "start -p $APP_PORT -H 0.0.0.0",
     exec_mode: "cluster",
     instances: "max",
-    max_memory_restart: "$((MEM_TOTAL / CPU_CORES / 2))M",
-    listen_timeout: 10000,
-    kill_timeout: 5000,
     env: { NODE_ENV: "production" }
   }]
 }
@@ -171,8 +149,6 @@ pm2 delete "$APP_NAME" || true
 pm2 start ecosystem.config.js
 pm2 save
 
-[ "$IS_WSL" = false ] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
-
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
 server {
@@ -180,19 +156,12 @@ server {
   server_name _;
   gzip on;
 
-  location /_next/static/ {
-    alias $APP_DIR/.next/static/;
-    expires 365d;
-    access_log off;
-  }
-
   location / {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
     proxy_set_header Upgrade \$http_upgrade;
     proxy_set_header Connection 'upgrade';
     proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-For \$remote_addr;
   }
 }
 EOF
@@ -200,13 +169,6 @@ EOF
 sudo ln -sf /etc/nginx/sites-available/$APP_NAME /etc/nginx/sites-enabled/
 sudo nginx -t
 sudo systemctl reload nginx
-
-if [ "$IS_WSL" = false ]; then
-  sudo ufw allow OpenSSH
-  sudo ufw allow 80
-  sudo ufw allow 443
-  sudo ufw --force enable
-fi
 
 echo "--------------------------------------"
 echo " INSTALL DONE"
