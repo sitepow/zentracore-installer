@@ -48,6 +48,7 @@ case "$1" in
     ssl)        require_arg "$@"; bash "$BASE_DIR/modules/ssl/install.sh" "$2" ;;
     remove-ssl) require_arg "$@"; bash "$BASE_DIR/modules/ssl/remove.sh" "$2" ;;
     backup)     bash "$BASE_DIR/modules/backup/backup.sh" ;;
-    restore)    require_arg "$@"; bash "$BASE_DIR/modules/backup/restore.sh" "$2" ;;
+    # restore)    require_arg "$@"; bash "$BASE_DIR/modules/backup/restore.sh" "$2" ;;
+    restore)    bash "$BASE_DIR/modules/backup/restore.sh" "${@:2}";;
     *)          echo "❌ Unknown command: $1"; usage ;;
 esac
