@@ -86,31 +86,32 @@ echo "--------------------------------------"
 echo " Checking SSH key for GitHub"
 echo "--------------------------------------"
 
-SSH_KEY="$HOME/.ssh/id_ed25519"
+SSH_DIR="$HOME/.ssh"
+SSH_KEY="$SSH_DIR/id_ed25519"
+SSH_PUB="$SSH_KEY.pub"
 
-mkdir -p "$HOME/.ssh"
-chmod 700 "$HOME/.ssh"
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
 
-if [ ! -f "$SSH_KEY" ]; then
+if [ -f "$SSH_KEY" ] && [ -f "$SSH_PUB" ]; then
+  echo "SSH key already exists, skipping generation"
+else
   echo "No SSH key found, generating new one..."
   ssh-keygen -t ed25519 -C "zentracore@$(hostname)" -f "$SSH_KEY" -N ""
-else
-  echo "SSH key already exists"
+
+  chmod 600 "$SSH_KEY"
+  chmod 644 "$SSH_PUB"
+
+  echo ""
+  echo "--------------------------------------"
+  echo " COPY THIS SSH PUBLIC KEY TO GITHUB"
+  echo "--------------------------------------"
+  cat "$SSH_PUB"
+  echo "--------------------------------------"
+  echo "GitHub → Settings → SSH and GPG keys → New SSH key"
+  echo "Paste the key above, then press ENTER to continue"
+  read -r
 fi
-
-chmod 600 "$SSH_KEY"
-chmod 644 "$SSH_KEY.pub"
-
-echo ""
-echo "--------------------------------------"
-echo "COPY THIS SSH PUBLIC KEY TO GITHUB"
-echo "--------------------------------------"
-cat "$SSH_KEY.pub"
-echo "--------------------------------------"
-echo ""
-echo "GitHub → Settings → SSH and GPG keys → New SSH key"
-echo "Paste the key above, then press ENTER to continue"
-read -r
 
 git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
 cd "$APP_DIR"
@@ -144,9 +145,7 @@ pnpm prisma migrate deploy
 pnpm build
 
 pm2 delete "$APP_NAME" || true
-pm2 start pnpm \
-  --name "$APP_NAME" \
-  -- start --port $APP_PORT
+pm2 start pnpm --name "$APP_NAME" -- start
 pm2 save
 
 if [ "$IS_WSL" = false ]; then
