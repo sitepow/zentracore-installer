@@ -41,30 +41,37 @@ PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
 PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
 PG_HBA="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
 
-sudo sed -i "/^listen_addresses/d" "$PG_CONF"
-echo "listen_addresses = 'localhost'" | sudo tee -a "$PG_CONF"
+sudo sed -i "s/^#\?listen_addresses.*/listen_addresses = 'localhost'/" "$PG_CONF"
 
-
-sudo sed -i "s/^local\s\+all\s\+all\s\+.*/local all all md5/" "$PG_HBA"
-sudo sed -i "s/^host\s\+all\s\+all\s\+127.0.0.1\/32\s\+.*/host all all 127.0.0.1\/32 md5/" "$PG_HBA"
-sudo sed -i "s/^host\s\+all\s\+all\s\+::1\/128\s\+.*/host all all ::1\/128 md5/" "$PG_HBA"
+sudo sed -i "s/^local\s\+all\s\+all\s\+.*/local all all scram-sha-256/" "$PG_HBA"
+sudo sed -i "s/^host\s\+all\s\+all\s\+127.0.0.1\/32\s\+.*/host all all 127.0.0.1\/32 scram-sha-256/" "$PG_HBA"
+sudo sed -i "s/^host\s\+all\s\+all\s\+::1\/128\s\+.*/host all all ::1\/128 scram-sha-256/" "$PG_HBA"
 
 sudo systemctl restart postgresql
 
 sudo -u postgres psql <<EOF
-REVOKE CONNECT ON DATABASE $DB_NAME FROM public;
-SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$DB_NAME';
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE datname IN ('$DB_NAME', '${DB_NAME}_shadow');
 
 DROP DATABASE IF EXISTS ${DB_NAME};
 DROP DATABASE IF EXISTS ${DB_NAME}_shadow;
 DROP ROLE IF EXISTS $DB_USER;
 
-CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
+CREATE ROLE $DB_USER
+  LOGIN
+  PASSWORD '$DB_PASSWORD'
+  CREATEDB
+  CREATEROLE;
+
 CREATE DATABASE $DB_NAME OWNER $DB_USER;
 CREATE DATABASE ${DB_NAME}_shadow OWNER $DB_USER;
 
 GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME}_shadow TO $DB_USER;
+
+ALTER DATABASE $DB_NAME OWNER TO $DB_USER;
+ALTER DATABASE ${DB_NAME}_shadow OWNER TO $DB_USER;
 EOF
 
 curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
@@ -101,8 +108,8 @@ echo "--------------------------------------"
 cat "$SSH_KEY.pub"
 echo "--------------------------------------"
 echo ""
-echo "👉 GitHub → Settings → SSH and GPG keys → New SSH key"
-echo "👉 Paste the key above, then press ENTER to continue"
+echo "GitHub → Settings → SSH and GPG keys → New SSH key"
+echo "Paste the key above, then press ENTER to continue"
 read -r
 
 git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
@@ -127,17 +134,24 @@ OMISE_SECRET_KEY="zentracore_"
 NEXT_PUBLIC_OMISE_PUBLIC_KEY="zentracore_"
 EOF
 
-pnpm install
+mkdir -p "$APP_DIR/public/uploads"
+chmod 755 "$APP_DIR/public/uploads"
+chown -R "$USER:$USER" "$APP_DIR/public/uploads"
+
+pnpm install --frozen-lockfile
 pnpm prisma generate
 pnpm prisma migrate deploy
 pnpm build
 
-
 pm2 delete "$APP_NAME" || true
-pm2 start pnpm --name "$APP_NAME" -- start
+pm2 start pnpm \
+  --name "$APP_NAME" \
+  -- start --port $APP_PORT
 pm2 save
 
-[ "$IS_WSL" = false ] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
+if [ "$IS_WSL" = false ]; then
+  pm2 startup systemd -u "$USER" --hp "$HOME" || true
+fi
 
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
@@ -146,6 +160,7 @@ server {
   server_name _;
 
   gzip on;
+  gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
 
   location /_next/static/ {
     alias $APP_DIR/.next/static/;
@@ -153,11 +168,44 @@ server {
     access_log off;
   }
 
+  location /uploads/ {
+    alias $APP_DIR/public/uploads/;
+    autoindex off;
+
+    expires 30d;
+    access_log off;
+    add_header Cache-Control "public, max-age=2592000";
+
+    types {
+      image/jpeg jpg jpeg;
+      image/png png;
+      image/webp webp;
+      video/mp4 mp4;
+    }
+
+    default_type application/octet-stream;
+
+    limit_except GET HEAD {
+      deny all;
+    }
+  }
+
+  location /health {
+    access_log off;
+    return 200 "OK";
+  }
+
   location / {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
     proxy_set_header X-Forwarded-For \$remote_addr;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  location ~* \.(php|sh|env|sql)$ {
+    deny all;
   }
 }
 EOF
