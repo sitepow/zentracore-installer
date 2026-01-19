@@ -15,29 +15,12 @@ CPU_CORES=$(nproc)
 MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
 
 echo "--------------------------------------"
-echo " ZentraCore Production Install"
+echo " ZentraCore Install"
 echo " CPU: $CPU_CORES cores"
 echo " RAM: ${MEM_TOTAL}MB"
 echo " WSL: $IS_WSL"
 echo " APP: $APP_URL"
 echo "--------------------------------------"
-
-OS_RESERVE=$((MEM_TOTAL * 15 / 100))
-PG_BUDGET=$((MEM_TOTAL * 40 / 100))
-NODE_BUDGET=$((MEM_TOTAL * 25 / 100))
-REDIS_BUDGET=$((MEM_TOTAL * 10 / 100))
-
-if [ "$IS_WSL" = false ]; then
-sudo tee /etc/sysctl.d/99-zentracore.conf >/dev/null <<EOF
-fs.file-max = 2097152
-net.core.somaxconn = 65535
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.ip_local_port_range = 1024 65000
-net.ipv4.tcp_fastopen = 3
-vm.swappiness = 10
-EOF
-sudo sysctl --system >/dev/null
-fi
 
 sudo apt update
 sudo apt install -y \
@@ -50,57 +33,17 @@ if [ "$IS_WSL" = false ]; then
   sudo timedatectl set-timezone "$TIMEZONE"
 fi
 
-REDIS_MAX_MEM=$REDIS_BUDGET
-[ "$REDIS_MAX_MEM" -lt 64 ] && REDIS_MAX_MEM=64
-[ "$REDIS_MAX_MEM" -gt 1024 ] && REDIS_MAX_MEM=1024
 
-sudo sed -i "s/^# maxmemory .*/maxmemory ${REDIS_MAX_MEM}mb/" /etc/redis/redis.conf
-sudo sed -i "s/^# maxmemory-policy .*/maxmemory-policy allkeys-lru/" /etc/redis/redis.conf
+sudo systemctl enable redis-server
 sudo systemctl restart redis-server
 
 PG_VERSION=$(psql -V | awk '{print $3}' | cut -d. -f1)
 PG_CONF="/etc/postgresql/$PG_VERSION/main/postgresql.conf"
 PG_HBA="/etc/postgresql/$PG_VERSION/main/pg_hba.conf"
 
-grep -q "ZENTRACORE_REMOTE_ACCESS" "$PG_HBA" || sudo tee -a "$PG_HBA" >/dev/null <<EOF
+sudo sed -i "/^listen_addresses/d" "$PG_CONF"
+echo "listen_addresses = 'localhost'" | sudo tee -a "$PG_CONF"
 
-# ZENTRACORE_REMOTE_ACCESS
-host    all             all             0.0.0.0/0               md5
-host    all             all             ::/0                    md5
-EOF
-
-PG_SHARED_BUFFERS=$((PG_BUDGET * 25 / 100))
-PG_CACHE_SIZE=$((PG_BUDGET * 75 / 100))
-PG_MAINT_MEM=$((PG_BUDGET * 10 / 100))
-
-PG_WORK_MEM=$((PG_BUDGET / CPU_CORES / 8))
-[ "$PG_WORK_MEM" -lt 4 ] && PG_WORK_MEM=4
-[ "$PG_WORK_MEM" -gt 64 ] && PG_WORK_MEM=64
-
-PG_MAX_CONN=$((CPU_CORES * 20))
-[ "$PG_MAX_CONN" -gt 200 ] && PG_MAX_CONN=200
-
-sudo sed -i "/^listen_addresses\s*=.*/d" "$PG_CONF"
-sudo sed -i "/^#listen_addresses\s*=.*/d" "$PG_CONF"
-
-grep -q "ZENTRACORE_NETWORK" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
-
-# ZENTRACORE_NETWORK
-listen_addresses = '*'
-EOF
-
-grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
-
-# ZENTRACORE_TUNING
-shared_buffers = ${PG_SHARED_BUFFERS}MB
-effective_cache_size = ${PG_CACHE_SIZE}MB
-work_mem = ${PG_WORK_MEM}MB
-maintenance_work_mem = ${PG_MAINT_MEM}MB
-max_connections = ${PG_MAX_CONN}
-checkpoint_completion_target = 0.9
-synchronous_commit = off
-random_page_cost = 1.1
-EOF
 
 sudo sed -i "s/^local\s\+all\s\+all\s\+.*/local all all md5/" "$PG_HBA"
 sudo sed -i "s/^host\s\+all\s\+all\s\+127.0.0.1\/32\s\+.*/host all all 127.0.0.1\/32 md5/" "$PG_HBA"
@@ -116,7 +59,7 @@ DROP DATABASE IF EXISTS ${DB_NAME};
 DROP DATABASE IF EXISTS ${DB_NAME}_shadow;
 DROP ROLE IF EXISTS $DB_USER;
 
-CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD' CREATEDB;
+CREATE ROLE $DB_USER LOGIN PASSWORD '$DB_PASSWORD';
 CREATE DATABASE $DB_NAME OWNER $DB_USER;
 CREATE DATABASE ${DB_NAME}_shadow OWNER $DB_USER;
 
@@ -174,18 +117,14 @@ NEXT_PUBLIC_APP_URL=$APP_URL
 NEXTAUTH_URL=$APP_URL
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
 NODE_ENV=production
-GOOGLE_CLIENT_ID="dummy"
-GOOGLE_CLIENT_SECRET="dummy"
-FACEBOOK_CLIENT_ID="dummy"
-FACEBOOK_CLIENT_SECRET="dummy"
-STRIPE_SECRET_KEY="sk_test_dummy"
-STRIPE_WEBHOOK_SECRET="whsec_dummy"
-OMISE_SECRET_KEY="pkey_test_dummy"
-NEXT_PUBLIC_OMISE_PUBLIC_KEY="pkey_test_dummy_public"
-SUPABASE_URL="https://dummy.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="dummy"
-NEXT_PUBLIC_SUPABASE_URL="https://dummy.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="dummy"
+GOOGLE_CLIENT_ID="zentracore_"
+GOOGLE_CLIENT_SECRET="zentracore_"
+FACEBOOK_CLIENT_ID="zentracore_"
+FACEBOOK_CLIENT_SECRET="zentracore_"
+STRIPE_SECRET_KEY="zentracore_"
+STRIPE_WEBHOOK_SECRET="zentracore_"
+OMISE_SECRET_KEY="zentracore_"
+NEXT_PUBLIC_OMISE_PUBLIC_KEY="zentracore_"
 EOF
 
 pnpm install
@@ -193,22 +132,9 @@ pnpm prisma generate
 pnpm prisma migrate deploy
 pnpm build
 
-cat > ecosystem.config.js <<EOF
-module.exports = {
-  apps: [{
-    name: "$APP_NAME",
-    script: "node_modules/next/dist/bin/next",
-    args: "start -p $APP_PORT -H 0.0.0.0",
-    exec_mode: "cluster",
-    instances: "max",
-    max_memory_restart: "${NODE_BUDGET}M",
-    env: { NODE_ENV: "production" }
-  }]
-}
-EOF
 
 pm2 delete "$APP_NAME" || true
-pm2 start ecosystem.config.js
+pm2 start pnpm --name "$APP_NAME" -- start
 pm2 save
 
 [ "$IS_WSL" = false ] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
@@ -218,22 +144,18 @@ sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
 server {
   listen 80;
   server_name _;
+
   gzip on;
-  location /uploads/ {
-  alias /var/www/zentracore/public/uploads/;
-  expires 30d;
-  access_log off;
-  }
+
   location /_next/static/ {
     alias $APP_DIR/.next/static/;
     expires 365d;
     access_log off;
   }
+
   location / {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection 'upgrade';
     proxy_set_header Host \$host;
     proxy_set_header X-Forwarded-For \$remote_addr;
   }
@@ -248,7 +170,6 @@ if [ "$IS_WSL" = false ]; then
   sudo ufw allow OpenSSH
   sudo ufw allow 80
   sudo ufw allow 443
-  sudo ufw allow 5432
   sudo ufw --force enable
 fi
 
