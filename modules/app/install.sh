@@ -144,8 +144,19 @@ pnpm prisma generate
 pnpm prisma migrate deploy
 pnpm build
 
+cat > ecosystem.config.js <<EOF
+module.exports = {
+  apps: [{
+    name: "APP_NAME",
+    script: "node_modules/next/dist/bin/next",
+    args: "start -p APP_PORT -H 0.0.0.0",
+    env: { NODE_ENV: "production" }
+  }]
+}
+EOF
+
 pm2 delete "$APP_NAME" || true
-pm2 start pnpm --name "$APP_NAME" -- start
+pm2 start ecosystem.config.js
 pm2 save
 
 if [ "$IS_WSL" = false ]; then
@@ -198,6 +209,8 @@ server {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection 'upgrade';
     proxy_set_header X-Forwarded-For \$remote_addr;
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-Proto \$scheme;
