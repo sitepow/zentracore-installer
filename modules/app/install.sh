@@ -219,6 +219,11 @@ server {
   listen 80;
   server_name _;
   gzip on;
+  location /uploads/ {
+  alias /var/www/zentracore/public/uploads/;
+  expires 30d;
+  access_log off;
+  }
   location /_next/static/ {
     alias $APP_DIR/.next/static/;
     expires 365d;
