@@ -138,7 +138,7 @@ mkdir -p "$APP_DIR/public/uploads"
 chmod 755 "$APP_DIR/public/uploads"
 chown -R "$USER:$USER" "$APP_DIR/public/uploads"
 
-pnpm install --frozen-lockfile
+pnpm install
 pnpm prisma generate
 pnpm prisma migrate deploy
 pnpm build
