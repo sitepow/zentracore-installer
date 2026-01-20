@@ -144,24 +144,11 @@ pnpm prisma generate
 pnpm prisma migrate deploy
 pnpm build
 
-cat > ecosystem.config.js <<EOF
-module.exports = {
-  apps: [{
-    name: "APP_NAME",
-    script: "node_modules/next/dist/bin/next",
-    args: "start -p APP_PORT -H 0.0.0.0",
-    env: { NODE_ENV: "production" }
-  }]
-}
-EOF
-
 pm2 delete "$APP_NAME" || true
-pm2 start ecosystem.config.js
+pm2 start pnpm --name "$APP_NAME" -- start
 pm2 save
 
-if [ "$IS_WSL" = false ]; then
-  pm2 startup systemd -u "$USER" --hp "$HOME" || true
-fi
+[ "$IS_WSL" = false ] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
 
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
@@ -170,7 +157,12 @@ server {
   server_name _;
 
   gzip on;
-  gzip_types text/plain text/css application/json application/javascript application/xml image/svg+xml;
+
+  location /uploads/ {
+    alias /var/www/zentracore/public/uploads/;
+    expires 30d;
+    access_log off;
+  }
 
   location /_next/static/ {
     alias $APP_DIR/.next/static/;
@@ -178,46 +170,11 @@ server {
     access_log off;
   }
 
-  location /uploads/ {
-    alias $APP_DIR/public/uploads/;
-    autoindex off;
-
-    expires 30d;
-    access_log off;
-    add_header Cache-Control "public, max-age=2592000";
-
-    types {
-      image/jpeg jpg jpeg;
-      image/png png;
-      image/webp webp;
-      video/mp4 mp4;
-    }
-
-    default_type application/octet-stream;
-
-    limit_except GET HEAD {
-      deny all;
-    }
-  }
-
-  location /health {
-    access_log off;
-    return 200 "OK";
-  }
-
   location / {
     proxy_pass http://127.0.0.1:$APP_PORT;
     proxy_http_version 1.1;
     proxy_set_header Host \$host;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection 'upgrade';
     proxy_set_header X-Forwarded-For \$remote_addr;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-  }
-
-  location ~* \.(php|sh|env|sql)$ {
-    deny all;
   }
 }
 EOF
