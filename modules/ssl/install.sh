@@ -80,11 +80,13 @@ sudo ln -sf "$NGINX_CONF" /etc/nginx/sites-enabled/
 if [ "$HAS_SSL" = false ]; then
     echo "[SYSTEM]: Requesting new SSL Certificate..."
     sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN --non-interactive --agree-tos -m $EMAIL --redirect
-    
     echo "[SYSTEM]: Testing auto-renewal process..."
     sudo certbot renew --dry-run
 else
-    echo "[SYSTEM]: Existing SSL found. Ensuring Nginx is reloaded with current config."
+    echo "[SYSTEM]: Existing SSL found. Re-installing SSL to current Nginx config..."
+    sudo certbot install --nginx -d $DOMAIN -d www.$DOMAIN --cert-name $DOMAIN --redirect --non-interactive
+    
+    echo "[SUCCESS]: Nginx reloaded with existing SSL."
     sudo nginx -t && sudo systemctl reload nginx
 fi
 
