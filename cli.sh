@@ -13,8 +13,6 @@ Usage:
 Commands:
   install <git-branch>       Install ZentraCore application
   update <domain>        Update application
-  restart                Restart all services
-  uninstall              Remove ZentraCore completely
 
   ssl <domain>           Install SSL (Let's Encrypt)
   remove-ssl <domain>    Remove SSL
@@ -42,13 +40,10 @@ require_arg() {
 case "$1" in
     ""|help|-h|--help) usage ;;
     install)    require_arg "$@"; bash "$BASE_DIR/modules/app/install.sh" "$2" ;;
-    restart)    bash "$BASE_DIR/modules/app/restart.sh" ;;
     update)     require_arg "$@"; bash "$BASE_DIR/modules/app/update.sh" "$2" ;;
-    uninstall)  bash "$BASE_DIR/modules/app/uninstall.sh" ;;
     ssl)        require_arg "$@"; bash "$BASE_DIR/modules/ssl/install.sh" "$2" ;;
     remove-ssl) require_arg "$@"; bash "$BASE_DIR/modules/ssl/remove.sh" "$2" ;;
     backup)     bash "$BASE_DIR/modules/backup/backup.sh" ;;
-    # restore)    require_arg "$@"; bash "$BASE_DIR/modules/backup/restore.sh" "$2" ;;
     restore)    bash "$BASE_DIR/modules/backup/restore.sh" "${@:2}";;
-    *)          echo "❌ Unknown command: $1"; usage ;;
+    *)          echo "Unknown command: $1"; usage ;;
 esac
