@@ -14,36 +14,46 @@ grep -qi microsoft /proc/version && IS_WSL=true
 CPU_CORES=$(nproc)
 MEM_TOTAL=$(free -m | awk '/^Mem:/{print $2}')
 
-echo "--------------------------------------"
-echo " ZentraCore Production Install"
-echo " CPU: $CPU_CORES cores"
-echo " RAM: ${MEM_TOTAL}MB"
-echo " WSL: $IS_WSL"
+echo "--------------------------------------------------"
+echo "ZentraCore Production Install"
+echo " OS: $(lsb_release -ds 2>/dev/null || echo "Linux")"
+echo " CPU: $CPU_CORES cores | RAM: ${MEM_TOTAL}MB"
 echo " APP: $APP_URL"
-echo "--------------------------------------"
+echo "--------------------------------------------------"
+
+if [ "$IS_WSL" = false ] && [ $(swapon --show | wc -l) -eq 0 ]; then
+    echo "[SYSTEM]: Creating 2GB Swap file for build stability..."
+    sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    echo "[SUCCESS]: Swap set up."
+fi
+
+if [ "$IS_WSL" = false ]; then
+    echo "[SYSTEM]: Optimizing Network and File System..."
+    sudo tee /etc/sysctl.d/99-zentracore.conf >/dev/null <<EOF
+fs.file-max = 2097152
+net.ipv4.tcp_fastopen = 3
+net.core.somaxconn = 65535
+net.core.netdev_max_backlog = 65535
+net.ipv4.tcp_max_syn_backlog = 65535
+net.ipv4.tcp_fin_timeout = 10
+vm.swappiness = 10
+vm.vfs_cache_pressure = 50
+EOF
+    sudo sysctl --system >/dev/null
+fi
+
+echo "[SYSTEM]: Updating and Installing Software Stack..."
+sudo apt update
+sudo apt install -y curl git nginx ca-certificates gnupg unzip htop postgresql postgresql-contrib redis-server fail2ban
 
 OS_RESERVE=$((MEM_TOTAL * 15 / 100))
 PG_BUDGET=$((MEM_TOTAL * 40 / 100))
 NODE_BUDGET=$((MEM_TOTAL * 25 / 100))
 REDIS_BUDGET=$((MEM_TOTAL * 10 / 100))
-
-if [ "$IS_WSL" = false ]; then
-sudo tee /etc/sysctl.d/99-zentracore.conf >/dev/null <<EOF
-fs.file-max = 2097152
-net.core.somaxconn = 65535
-net.ipv4.tcp_fin_timeout = 15
-net.ipv4.ip_local_port_range = 1024 65000
-net.ipv4.tcp_fastopen = 3
-vm.swappiness = 10
-EOF
-sudo sysctl --system >/dev/null
-fi
-
-sudo apt update
-sudo apt install -y \
-  curl git nginx ca-certificates gnupg unzip htop \
-  postgresql postgresql-contrib \
-  redis-server
 
 if [ "$IS_WSL" = false ]; then
   sudo apt install -y ufw fail2ban
@@ -89,6 +99,7 @@ grep -q "ZENTRACORE_NETWORK" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<E
 listen_addresses = '*'
 EOF
 
+sudo sed -i "s/^shared_buffers =.*/shared_buffers = ${PG_SHARED_BUFFERS}MB/" "$PG_CONF"
 grep -q "ZENTRACORE_TUNING" "$PG_CONF" || sudo tee -a "$PG_CONF" >/dev/null <<EOF
 
 # ZENTRACORE_TUNING
@@ -100,6 +111,8 @@ max_connections = ${PG_MAX_CONN}
 checkpoint_completion_target = 0.9
 synchronous_commit = off
 random_page_cost = 1.1
+effective_io_concurrency = 200
+work_mem = $((PG_BUDGET / CPU_CORES / 8))MB
 EOF
 
 sudo sed -i "s/^local\s\+all\s\+all\s\+.*/local all all md5/" "$PG_HBA"
@@ -124,68 +137,68 @@ GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;
 GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME}_shadow TO $DB_USER;
 EOF
 
-curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
-sudo apt install -y nodejs
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_$NODE_VERSION.x | sudo -E bash -
+    sudo apt install -y nodejs
+fi
 sudo npm install -g pnpm pm2
 
 sudo rm -rf "$APP_DIR"
 sudo mkdir -p "$APP_DIR"
 sudo chown -R "$USER:$USER" "$APP_DIR"
-
 echo "--------------------------------------"
 echo " Checking SSH key for GitHub"
 echo "--------------------------------------"
 
-SSH_KEY="$HOME/.ssh/id_ed25519"
+SSH_DIR="$HOME/.ssh"
+SSH_KEY="$SSH_DIR/id_ed25519"
+SSH_PUB="$SSH_KEY.pub"
 
-mkdir -p "$HOME/.ssh"
-chmod 700 "$HOME/.ssh"
+mkdir -p "$SSH_DIR"
+chmod 700 "$SSH_DIR"
 
-if [ ! -f "$SSH_KEY" ]; then
+if [ -f "$SSH_KEY" ] && [ -f "$SSH_PUB" ]; then
+  echo "SSH key already exists, skipping generation"
+else
   echo "No SSH key found, generating new one..."
   ssh-keygen -t ed25519 -C "zentracore@$(hostname)" -f "$SSH_KEY" -N ""
-else
-  echo "SSH key already exists"
+
+  chmod 600 "$SSH_KEY"
+  chmod 644 "$SSH_PUB"
+
+  echo ""
+  echo "--------------------------------------"
+  echo " COPY THIS SSH PUBLIC KEY TO GITHUB"
+  echo "--------------------------------------"
+  cat "$SSH_PUB"
+  echo "--------------------------------------"
+  echo "GitHub → Settings → SSH and GPG keys → New SSH key"
+  echo "Paste the key above, then press ENTER to continue"
+  read -r
 fi
-
-chmod 600 "$SSH_KEY"
-chmod 644 "$SSH_KEY.pub"
-
-echo ""
-echo "--------------------------------------"
-echo "COPY THIS SSH PUBLIC KEY TO GITHUB"
-echo "--------------------------------------"
-cat "$SSH_KEY.pub"
-echo "--------------------------------------"
-echo ""
-echo "👉 GitHub → Settings → SSH and GPG keys → New SSH key"
-echo "👉 Paste the key above, then press ENTER to continue"
-read -r
 
 git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
 cat > .env <<EOF
 DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME
-SHADOW_DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/${DB_NAME}_shadow
 REDIS_URL=redis://127.0.0.1:6379
 APP_URL=$APP_URL
-NEXT_PUBLIC_APP_URL=$APP_URL
-NEXTAUTH_URL=$APP_URL
+NODE_ENV=production
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
 NODE_ENV=production
-GOOGLE_CLIENT_ID="dummy"
-GOOGLE_CLIENT_SECRET="dummy"
-FACEBOOK_CLIENT_ID="dummy"
-FACEBOOK_CLIENT_SECRET="dummy"
-STRIPE_SECRET_KEY="sk_test_dummy"
-STRIPE_WEBHOOK_SECRET="whsec_dummy"
-OMISE_SECRET_KEY="pkey_test_dummy"
-NEXT_PUBLIC_OMISE_PUBLIC_KEY="pkey_test_dummy_public"
-SUPABASE_URL="https://dummy.supabase.co"
-SUPABASE_SERVICE_ROLE_KEY="dummy"
-NEXT_PUBLIC_SUPABASE_URL="https://dummy.supabase.co"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="dummy"
+GOOGLE_CLIENT_ID="zentracore_"
+GOOGLE_CLIENT_SECRET="zentracore_"
+FACEBOOK_CLIENT_ID="zentracore_"
+FACEBOOK_CLIENT_SECRET="zentracore_"
+STRIPE_SECRET_KEY="sk_test_zentracore_"
+STRIPE_WEBHOOK_SECRET="whsec_zentracore_"
+OMISE_SECRET_KEY="pkey_test_zentracore_"
+NEXT_PUBLIC_OMISE_PUBLIC_KEY="zentracore_"
+SUPABASE_URL="zentracore_"
+SUPABASE_SERVICE_ROLE_KEY="zentracore_"
+NEXT_PUBLIC_SUPABASE_URL="zentracore_"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="zentracore_"
 EOF
 
 pnpm install
@@ -199,10 +212,16 @@ module.exports = {
     name: "$APP_NAME",
     script: "node_modules/next/dist/bin/next",
     args: "start -p $APP_PORT -H 0.0.0.0",
-    exec_mode: "cluster",
     instances: "max",
+    exec_mode: "cluster",
     max_memory_restart: "${NODE_BUDGET}M",
-    env: { NODE_ENV: "production" }
+    wait_ready: true,
+    listen_timeout: 10000,
+    kill_timeout: 5000,
+    env: {
+      NODE_ENV: "production",
+      NODE_OPTIONS: "--max-old-space-size=${NODE_BUDGET}"
+    }
   }]
 }
 EOF
@@ -216,40 +235,56 @@ pm2 save
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
 server {
-  listen 80;
-  server_name _;
-  gzip on;
-  location /uploads/ {
-  alias /var/www/zentracore/public/uploads/;
-  expires 30d;
-  access_log off;
-  }
-  location /_next/static/ {
-    alias $APP_DIR/.next/static/;
-    expires 365d;
-    access_log off;
-  }
-  location / {
-    proxy_pass http://127.0.0.1:$APP_PORT;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade \$http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host \$host;
-    proxy_set_header X-Forwarded-For \$remote_addr;
-  }
+    listen 80;
+    server_name _;
+    client_max_body_size 50M;
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 256;
+    gzip_proxied any;
+    gzip_types text/plain text/css application/json application/javascript application/x-javascript text/xml application/xml text/javascript;
+
+    location /_next/static/ {
+        alias $APP_DIR/.next/static/;
+        expires 365d;
+        access_log off;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    location /uploads/ {
+        alias $APP_DIR/public/uploads/;
+        expires 30d;
+        access_log off;
+        add_header Cache-Control "public, max-age=2592000";
+        location ~* \.(php|sh|pl|py|js)$ { deny all; }
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:$APP_PORT;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For \$remote_addr;
+        proxy_buffers 8 16k;
+        proxy_buffer_size 32k;
+    }
 }
 EOF
 
 sudo ln -sf /etc/nginx/sites-available/$APP_NAME /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl reload nginx
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
 
 if [ "$IS_WSL" = false ]; then
-  sudo ufw allow OpenSSH
-  sudo ufw allow 80
-  sudo ufw allow 443
-  sudo ufw allow 5432
-  sudo ufw --force enable
+    sudo ufw allow OpenSSH
+    sudo ufw allow 80
+    sudo ufw allow 443
+    sudo ufw allow 5432
+    sudo ufw --force enable
 fi
 
 echo "--------------------------------------"
