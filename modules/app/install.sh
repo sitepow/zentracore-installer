@@ -230,7 +230,9 @@ pm2 delete "$APP_NAME" || true
 pm2 start ecosystem.config.js
 pm2 save
 
-[ "$IS_WSL" = false ] && pm2 startup systemd -u "$USER" --hp "$HOME" | tail -n 1 | bash
+if [ "$IS_WSL" = false ]; then
+  pm2 startup systemd -u "$USER" --hp "$HOME"
+fi
 
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo tee /etc/nginx/sites-available/$APP_NAME >/dev/null <<EOF
