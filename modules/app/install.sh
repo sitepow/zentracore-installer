@@ -181,24 +181,34 @@ git clone -b "$GIT_BRANCH" "$GIT_REPO" "$APP_DIR"
 cd "$APP_DIR"
 
 cat > .env <<EOF
+# --- App Configuration ---
+NODE_ENV=production
+APP_URL=$APP_URL
+NEXTAUTH_URL=$APP_URL
+
+# --- Database & Cache ---
 DATABASE_URL=postgresql://$DB_USER:$DB_PASSWORD@127.0.0.1:$DB_PORT/$DB_NAME
 REDIS_URL=redis://127.0.0.1:6379
-APP_URL=$APP_URL
-NODE_ENV=production
+
+# --- Authentication (NextAuth) ---
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
-NODE_ENV=production
+
+# Google Provider
 GOOGLE_CLIENT_ID="zentracore_"
 GOOGLE_CLIENT_SECRET="zentracore_"
+
+# Facebook Provider
 FACEBOOK_CLIENT_ID="zentracore_"
 FACEBOOK_CLIENT_SECRET="zentracore_"
+
+# --- Payment Gateways ---
+# Stripe
 STRIPE_SECRET_KEY="sk_test_zentracore_"
 STRIPE_WEBHOOK_SECRET="whsec_zentracore_"
+
+# Omise
 OMISE_SECRET_KEY="pkey_test_zentracore_"
 NEXT_PUBLIC_OMISE_PUBLIC_KEY="zentracore_"
-SUPABASE_URL="zentracore_"
-SUPABASE_SERVICE_ROLE_KEY="zentracore_"
-NEXT_PUBLIC_SUPABASE_URL="zentracore_"
-NEXT_PUBLIC_SUPABASE_ANON_KEY="zentracore_"
 EOF
 
 pnpm install

@@ -64,8 +64,6 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        
-        # Buffers Optimization
         proxy_buffers 8 16k;
         proxy_buffer_size 32k;
     }
@@ -88,6 +86,25 @@ else
     
     echo "[SUCCESS]: Nginx reloaded with existing SSL."
     sudo nginx -t && sudo systemctl reload nginx
+fi
+
+echo "[SYSTEM]: Updating .env with HTTPS and Domain..."
+
+NEW_URL="https://$DOMAIN"
+ENV_FILE="$APP_DIR/.env"
+
+if [ -f "$ENV_FILE" ]; then
+    sudo sed -i "s|^APP_URL=.*|APP_URL=$NEW_URL|" "$ENV_FILE"
+    sudo sed -i "s|^NEXTAUTH_URL=.*|NEXTAUTH_URL=$NEW_URL|" "$ENV_FILE"
+    
+    echo "[SUCCESS]: .env updated to $NEW_URL"
+
+    echo "[SYSTEM]: Restarting PM2 to apply changes..."
+    cd "$APP_DIR"
+    pm2 restart "$APP_NAME" || pm2 start ecosystem.config.js
+    pm2 save
+else
+    echo "[ERROR]: .env file not found at $ENV_FILE"
 fi
 
 echo "--------------------------------------"

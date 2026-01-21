@@ -61,6 +61,26 @@ EOF
 sudo ln -sf "/etc/nginx/sites-available/$DOMAIN" "/etc/nginx/sites-enabled/"
 sudo nginx -t && sudo systemctl reload nginx
 
+echo "[SYSTEM]: Reverting .env to IP Address and HTTP..."
+
+SERVER_IP=$(curl -s ifconfig.me | tr -d ' ' || hostname -I | awk '{print $1}')
+OLD_URL="http://$SERVER_IP:$APP_PORT"
+ENV_FILE="$APP_DIR/.env"
+
+if [ -f "$ENV_FILE" ]; then
+    sudo sed -i "s|^APP_URL=.*|APP_URL=$OLD_URL|" "$ENV_FILE"
+    sudo sed -i "s|^NEXTAUTH_URL=.*|NEXTAUTH_URL=$OLD_URL|" "$ENV_FILE"
+    
+    echo "[SUCCESS]: .env reverted to $OLD_URL"
+
+    echo "[SYSTEM]: Restarting PM2 to apply changes..."
+    cd "$APP_DIR"
+    pm2 restart "$APP_NAME" || pm2 start ecosystem.config.js
+    pm2 save
+else
+    echo "[WARNING]: .env file not found. Manual update may be required."
+fi
+
 echo "--------------------------------------"
 echo "[DONE]: SSL Removed. Nginx restored to Optimized Port 80."
 echo "--------------------------------------"
