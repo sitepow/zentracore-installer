@@ -13,7 +13,7 @@ Designed for fast, repeatable, and secure server setup.
 
 ## Project Structure
 
-````text
+```
 zentracore-installer/
 ├─ config/        # Environment configuration
 ├─ modules/       # Feature-based installation modules
@@ -24,9 +24,10 @@ zentracore-installer/
 ├─ bootstrap.sh   # Entry point
 ├─ cli.sh         # CLI interface
 └─ README.md
+```
 
 ## Quick Install & Quick Update (CLI)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/sitepow/zentracore-installer/main/bootstrap.sh | bash
-````
+```
