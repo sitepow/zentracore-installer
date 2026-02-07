@@ -1,4 +1,4 @@
-# Zentracore Installer
+# ZentraCore Installer
 
 Automation shell script for provisioning and managing VPS environments  
 Designed for fast, repeatable, and secure server setup.
